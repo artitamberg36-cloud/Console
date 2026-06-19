@@ -48,11 +48,11 @@ class TitanBot extends Client {
       const dbInstance = await initializeDatabase();
       this.db = dbInstance.db;
 
+      startupLog('Starting web server...');
       this.startWebServer();
 
       startupLog('Loading commands...');
       await loadCommands(this);
-      startupLog(`Commands loaded: ${this.commands.size}`);
 
       startupLog('Loading handlers...');
       await this.loadHandlers();
@@ -63,15 +63,13 @@ class TitanBot extends Client {
       startupLog('Registering slash commands...');
       await this.registerCommands();
 
-      startupLog(
-        `ONLINE ✅ | ${this.commands.size} commands loaded`
-      );
+      startupLog(`ONLINE ✅ | ${this.commands.size} commands loaded`);
 
       this.setupCronJobs();
 
-      // ===============================
-      // ✅ YOUR CUSTOM POSTGRES COMMAND
-      // ===============================
+      // ================================
+      // ✅ YOUR POSTGRES RANK COMMAND
+      // ================================
       this.on('messageCreate', async (message) => {
         if (message.author.bot) return;
 
@@ -85,7 +83,7 @@ class TitanBot extends Client {
 
         if (!userMatch || !rankMatch) {
           return message.reply(
-            '❌ Usage: ?postgeSQL give.rank user.r"{ID or USERNAME}" r.{rank}'
+            '❌ Usage: ?postgeSQL give.rank user.r"xdpann" r.Diamond'
           );
         }
 
@@ -95,41 +93,50 @@ class TitanBot extends Client {
         const isId = /^\d+$/.test(user);
 
         try {
+          let result;
+
+          // ✅ FIXED QUERY WITH RESULT CHECK
           if (isId) {
-            await this.db.query(
+            result = await this.db.query(
               "UPDATE users SET rank = $1 WHERE user_id = $2",
               [rank, user]
             );
           } else {
-            await this.db.query(
+            result = await this.db.query(
               "UPDATE users SET rank = $1 WHERE username = $2",
               [rank, user]
             );
           }
 
+          // 🔥 IMPORTANT FIX: check if user exists
+          if (!result || result.rowCount === 0) {
+            return message.reply(`❌ User not found in database: ${user}`);
+          }
+
           return message.reply(`✅ Rank updated: ${user} → ${rank}`);
+
         } catch (err) {
-          console.error(err);
-          return message.reply('❌ PostgreSQL error while updating rank');
+          console.error("POSTGRES ERROR:", err);
+          return message.reply(`❌ PostgreSQL error: ${err.message}`);
         }
       });
 
     } catch (error) {
-      logger.error('Failed to start bot:', error);
+      console.error(error);
       process.exit(1);
     }
   }
 
   startWebServer() {
     const app = express();
-    const configuredPort = Number(this.config.api?.port || process.env.PORT || 3000);
+    const port = this.config.api?.port || 3000;
 
     app.get('/health', (req, res) => {
       res.json({ status: 'ok' });
     });
 
-    app.listen(configuredPort, () => {
-      startupLog(`Web server running on port ${configuredPort}`);
+    app.listen(port, () => {
+      startupLog(`Web server running on ${port}`);
     });
   }
 
@@ -146,8 +153,7 @@ class TitanBot extends Client {
 
     for (const handler of handlers) {
       const module = await import(`./handlers/${handler.path}.js`);
-      const loaderFn = module.default;
-      await loaderFn(this);
+      await module.default(this);
     }
   }
 
@@ -156,7 +162,7 @@ class TitanBot extends Client {
   }
 
   async shutdown(reason = 'UNKNOWN') {
-    shutdownLog(`Shutting down (${reason})...`);
+    shutdownLog(`Shutting down (${reason})`);
     this.destroy();
     process.exit(0);
   }
